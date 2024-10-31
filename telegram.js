@@ -1,25 +1,81 @@
 const { Api, TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 const dotenv = require('dotenv');
+const express = require('express');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger'); // Import swaggerSpec từ swagger.js
 dotenv.config();
 
-const express = require('express');
 const app = express();
 
-const apiId = parseInt(process.env.APIID,10);
+const apiId = parseInt(process.env.APIID, 10);
 const apiHash = process.env.APIHASH;
 const stringSession = new StringSession(process.env.STRINGSESSION);
 
 let client;
 
 async function initializeTelegramClient() {
-    client = new TelegramClient(stringSession, apiId, apiHash, {
-        connectionRetries: 5,
-    });
-    await client.connect();
+    if (!client) {
+        client = new TelegramClient(stringSession, apiId, apiHash, {
+            connectionRetries: 5,
+        });
+        await client.connect();
+    }
     return client;
 }
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+/**
+ * @swagger
+ * /api/message:
+ *   get:
+ *     summary: Lấy thông tin lượt xem và phản ứng của tin nhắn
+ *     parameters:
+ *       - in: query
+ *         name: peer
+ *         required: true
+ *         description: Peer của tin nhắn
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: id
+ *         required: true
+ *         description: ID của tin nhắn
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Thông tin lượt xem và phản ứng của tin nhắn
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 views:
+ *                   type: integer
+ *                   description: Số lượt xem
+ *                 title:
+ *                   type: string
+ *                   description: Tiêu đề của tin nhắn
+ *                 totalReactions:
+ *                   type: integer
+ *                   description: Tổng số phản ứng
+ *                 reactions:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       count:
+ *                         type: integer
+ *                         description: Số lượng phản ứng
+ *                       reaction:
+ *                         type: string
+ *                         description: Loại phản ứng
+ *       400:
+ *         description: Thiếu tham số peer hoặc id
+ *       500:
+ *         description: Đã xảy ra lỗi khi xử lý yêu cầu
+ */
 app.get('/api/message', async (req, res) => {
     try {
         const { peer, id } = req.query;
@@ -49,7 +105,8 @@ app.get('/api/message', async (req, res) => {
         const response = {
             views: viewsResult.views?.[0]?.views || 0,
             title: viewsResult.chats?.[0]?.title,
-            reactions: []
+            totalReactions: 0,
+            reactions: [],
         };
 
         if (reactionsResult.updates?.length > 0) {
@@ -59,6 +116,8 @@ app.get('/api/message', async (req, res) => {
                     count: result.count,
                     reaction: result.reaction,
                 }));
+
+                response.totalReactions = reactions.results.reduce((total, current) => total + current.count, 0);
             }
         }
 
